@@ -27,6 +27,9 @@ from ansible.module_utils.parsing.convert_bool import boolean
 from ansible.parsing.quoting import unquote
 from ansible.utils.path import cleanup_tmp_file, makedirs_safe, unfrackpath
 
+if t.TYPE_CHECKING:
+    from ansible.template import Templar
+
 
 INTERNAL_DEFS = {'lookup': ('_terms',)}
 
@@ -36,7 +39,6 @@ GALAXY_SERVER_DEF = [
     ('password', False, 'str'),
     ('token', False, 'str'),
     ('auth_url', False, 'str'),
-    ('api_version', False, 'int'),
     ('validate_certs', False, 'bool'),
     ('client_id', False, 'str'),
     ('client_secret', False, 'str'),
@@ -45,7 +47,6 @@ GALAXY_SERVER_DEF = [
 
 # config definition fields
 GALAXY_SERVER_ADDITIONAL = {
-    'api_version': {'default': None, 'choices': [2, 3]},
     'validate_certs': {'cli': [{'name': 'validate_certs'}]},
     'timeout': {'cli': [{'name': 'timeout'}]},
     'token': {'default': None},
@@ -540,12 +541,23 @@ class ConfigManager:
 
         return value, origin
 
-    def get_config_value(self, config, cfile=None, plugin_type=None, plugin_name=None, keys=None, variables=None, direct=None):
+    def get_config_value(
+        self,
+        config: str,
+        cfile: str | None = None,
+        plugin_type: str | None = None,
+        plugin_name: str | None = None,
+        keys=None,
+        variables=None,
+        direct=None,
+        *,
+        templar: Templar | None = None,
+    ) -> t.Any:
         """ wrapper """
 
         try:
             value, _drop = self.get_config_value_and_origin(config, cfile=cfile, plugin_type=plugin_type, plugin_name=plugin_name,
-                                                            keys=keys, variables=variables, direct=direct)
+                                                            keys=keys, variables=variables, direct=direct, templar=templar)
         except AnsibleError:
             raise
         except Exception as ex:
@@ -556,7 +568,18 @@ class ConfigManager:
         """Return the default value for the specified configuration."""
         return self.get_configuration_definitions(plugin_type, plugin_name)[config]['default']
 
-    def get_config_value_and_origin(self, config, cfile=None, plugin_type=None, plugin_name=None, keys=None, variables=None, direct=None):
+    def get_config_value_and_origin(
+            self,
+            config: str,
+            cfile: str | None = None,
+            plugin_type: str | None = None,
+            plugin_name: str | None = None,
+            keys=None,
+            variables=None,
+            direct=None,
+            *,
+            templar: Templar | None = None
+    ) -> tuple[str, t.Any]:
         """ Given a config key figure out the actual value and report on the origin of the settings """
         if cfile is None:
             # use default config
@@ -665,6 +688,9 @@ class ConfigManager:
                 else:
                     origin = 'default'
                     value = self.template_default(defs[config].get('default'), variables, key_name=_get_config_label(plugin_type, plugin_name, config))
+
+            if templar:
+                value = templar.template(value)
 
             try:
                 # ensure correct type, can raise exceptions on mismatched types

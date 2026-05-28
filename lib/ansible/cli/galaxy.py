@@ -78,8 +78,10 @@ def with_collection_artifacts_manager(wrapped_method):
         if 'artifacts_manager' in kwargs:
             return wrapped_method(*args, **kwargs)
 
-        # FIXME: use validate_certs context from Galaxy servers when downloading collections
-        # .get used here for when this is used in a non-CLI context
+        # configures validate_certs for type 'url' only
+        # type 'galaxy' inherits and overrides resolved_validate_certs
+        # type 'git' recalculates resolved_validate_certs
+        # NOTE: .get used here for when this is used in a non-CLI context
         artifacts_manager_kwargs = {'validate_certs': context.CLIARGS.get('resolved_validate_certs', True)}
 
         keyring = context.CLIARGS.get('keyring', None)
@@ -654,22 +656,9 @@ class GalaxyCLI(CLI):
             client_secret = server_options.pop('client_secret')
             token_val = server_options['token'] or NoTokenSentinel
             username = server_options['username']
-            api_version = server_options.pop('api_version')
             if server_options['validate_certs'] is None:
                 server_options['validate_certs'] = context.CLIARGS['resolved_validate_certs']
             validate_certs = server_options['validate_certs']
-
-            # This allows a user to explicitly force use of an API version when
-            # multiple versions are supported. This was added for testing
-            # against pulp_ansible and I'm not sure it has a practical purpose
-            # outside of this use case. As such, this option is not documented
-            # as of now
-            if api_version:
-                display.warning(
-                    f'The specified "api_version" configuration for the galaxy server "{server_key}" is '
-                    'not a public configuration, and may be removed at any time without warning.'
-                )
-                server_options['available_api_versions'] = {'v%s' % api_version: '/v%s' % api_version}
 
             # default case if no auth info is provided.
             server_options['token'] = None
@@ -697,12 +686,6 @@ class GalaxyCLI(CLI):
             ))
 
         cmd_server = context.CLIARGS['api_server']
-        if context.CLIARGS['api_version']:
-            api_version = context.CLIARGS['api_version']
-            display.warning(
-                'The --api-version is not a public argument, and may be removed at any time without warning.'
-            )
-            galaxy_options['available_api_versions'] = {'v%s' % api_version: '/v%s' % api_version}
 
         cmd_token = GalaxyToken(token=context.CLIARGS['api_key'])
 
@@ -1157,7 +1140,18 @@ class GalaxyCLI(CLI):
             skeleton_ignore_expressions = ['^.*/.git_keep$']
 
         obj_skeleton = os.path.expanduser(obj_skeleton)
-        skeleton_ignore_re = [re.compile(x) for x in skeleton_ignore_expressions]
+        failed_re_expressions = ""
+        skeleton_ignore_re = []
+        for x in skeleton_ignore_expressions:
+            try:
+                skeleton_ignore_re.append(re.compile(x))
+            except re.error as e:
+                failed_re_expressions += f"- {x}: {str(e)}\n"
+                continue
+        if failed_re_expressions:
+            raise AnsibleError(
+                f"Failed to compile regular expressions for skeleton ignore: \n{failed_re_expressions}"
+            )
 
         if not os.path.exists(obj_skeleton):
             raise AnsibleError("- the skeleton path '{0}' does not exist, cannot init {1}".format(
@@ -1629,8 +1623,8 @@ class GalaxyCLI(CLI):
             display.warning(w)
 
         if not path_found:
-            raise AnsibleOptionsError(
-                "- None of the provided paths were usable. Please specify a valid path with --{0}s-path".format(context.CLIARGS['type'])
+            display.warning(
+                "None of the provided paths were usable. Please specify a valid path with --{0}s-path.".format(context.CLIARGS['type'])
             )
 
         return 0
@@ -1714,8 +1708,8 @@ class GalaxyCLI(CLI):
             display.warning(w)
 
         if not collections and not path_found:
-            raise AnsibleOptionsError(
-                "- None of the provided paths were usable. Please specify a valid path with --{0}s-path".format(context.CLIARGS['type'])
+            display.warning(
+                "None of the provided paths were usable. Please specify a valid path with --{0}s-path.".format(context.CLIARGS['type'])
             )
 
         if output_format == 'json':

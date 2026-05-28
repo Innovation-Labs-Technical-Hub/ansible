@@ -2,6 +2,9 @@
 
 set -eux
 
+# ensure task vars reflect facts during loops
+ansible-playbook ansible_facts_as_task_vars.yml -i ../../inventory "$@"
+
 #ANSIBLE_CACHE_PLUGINS=cache_plugins/ ANSIBLE_CACHE_PLUGIN=none ansible-playbook test_gathering_facts.yml -i inventory -v "$@"
 ansible-playbook test_gathering_facts.yml -i inventory -e output_dir="$OUTPUT_DIR" -v "$@"
 #ANSIBLE_CACHE_PLUGIN=base ansible-playbook test_gathering_facts.yml -i inventory -v "$@"
@@ -25,6 +28,9 @@ ansible-playbook  test_module_defaults.yml "$@" --tags default_fact_module
 ANSIBLE_FACTS_MODULES='ansible.legacy.setup' ansible-playbook test_module_defaults.yml "$@" --tags custom_fact_module
 
 ansible-playbook test_module_defaults.yml "$@" --tags networking
+
+# test gather_facts action templates module_defaults for different module name
+ansible-playbook test_module_defaults.yml "$@" --tags templating
 
 # test it works by default
 ANSIBLE_FACTS_MODULES='ansible.legacy.slow' ansible -m gather_facts localhost --playbook-dir ./ "$@"
